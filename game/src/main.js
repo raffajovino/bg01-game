@@ -49,6 +49,10 @@ let last = performance.now();
 let accumulator = 0;
 let clock = 0;
 
+// Exposed for the captured screenshots and for anyone poking at the game from the console:
+// read the live world to see how it is tuned, never to skip its rules.
+window.neonDepths = world;
+
 function frame(now) {
   const elapsed = Math.min(0.25, (now - last) / 1000);
   last = now;

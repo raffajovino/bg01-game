@@ -185,6 +185,8 @@ export function createWorld(random) {
           state.cores += 1;
           state.score += CORE.score;
           state.energy = Math.min(ENERGY_MAX, state.energy + CORE.energy);
+          // every third core also patches the hull, rewarding aggressive play
+          if (state.cores % 3 === 0 && state.hull < SUB.hullMax) state.hull += 1;
           events |= EVENT_CORE;
         } else if (sub.grace === 0) {
           item.active = false;

@@ -24,9 +24,9 @@ export const MINE = {
   speedMin: 120,
   speedPerDepth: 26,
   speedJitter: 70,
-  interval: 0.8,
+  interval: 0.85,
   intervalScale: 0.93,
-  minInterval: 0.16,
+  minInterval: 0.18,
 };
 
 export const CORE = {
