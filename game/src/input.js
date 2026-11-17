@@ -1,53 +1,52 @@
-// Keyboard and pointer input. Held keys give a steering direction; one-shot presses (start or
-// restart, pause) are queued as bit flags and taken once by the loop, so a press between two
-// frames is never lost and never counted twice.
+// Keyboard + mouse input, edge-detected: the world only sees presses that happened this frame.
 
-export const ACTION_CONFIRM = 1;
-export const ACTION_PAUSE = 2;
+const held = new Set();
+const pressed = new Set();
 
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
+const KEYMAP = {
+  ArrowLeft: 'left', KeyA: 'left',
+  ArrowRight: 'right', KeyD: 'right',
+  ArrowUp: 'up', KeyW: 'up',
+  ArrowDown: 'down', KeyS: 'down',
+  ShiftLeft: 'boost', ShiftRight: 'boost',
+  KeyP: 'pause', Escape: 'pause',
+  Enter: 'confirm', Space: 'confirm',
+};
 
-export function createInput(target) {
-  let left = false;
-  let right = false;
-  let actions = 0;
-
+export function initInput(canvas, onPress) {
   window.addEventListener('keydown', (event) => {
-    if (LEFT.has(event.code)) left = true;
-    else if (RIGHT.has(event.code)) right = true;
-    else if (CONFIRM.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_CONFIRM;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else return;
+    const key = KEYMAP[event.code];
+    if (!key) return;
     event.preventDefault();
-  });
+    if (!held.has(key)) {
+      pressed.add(key);
+      if (onPress) onPress(key);
+    }
+    held.add(key);
+  }, { passive: false });
+
   window.addEventListener('keyup', (event) => {
-    if (LEFT.has(event.code)) left = false;
-    else if (RIGHT.has(event.code)) right = false;
-  });
-  // A key released while the tab is hidden never sends keyup: let go of everything on blur.
-  window.addEventListener('blur', () => {
-    left = false;
-    right = false;
-  });
-  target.addEventListener('pointerdown', () => {
-    actions |= ACTION_CONFIRM;
+    const key = KEYMAP[event.code];
+    if (key) held.delete(key);
   });
 
-  return {
-    /** -1 for left, 1 for right, 0 for neither or both. */
-    direction() {
-      return (right ? 1 : 0) - (left ? 1 : 0);
-    },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
-    },
-  };
+  canvas.addEventListener('pointerdown', () => {
+    pressed.add('confirm');
+    if (onPress) onPress('confirm');
+  });
+}
+
+/** True while the key is down. */
+export function isDown(key) {
+  return held.has(key);
+}
+
+/** True only on the frame the key went down. */
+export function wasPressed(key) {
+  return pressed.has(key);
+}
+
+/** Clear the per-frame edge set; call once at the end of every frame. */
+export function endFrame() {
+  pressed.clear();
 }

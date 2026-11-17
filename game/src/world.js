@@ -1,38 +1,52 @@
-// The game's rules and state, with no drawing and no browser in it: the player's paddle, the
-// pool of falling blocks and coins, spawning, collisions, score, lives and level. step() advances
+// The game's rules and state, with no drawing and no browser in it: the submarine, the pool of
+// mines, energy cores and anglerfish, the vault approach, score, hull and energy. step() advances
 // one fixed step and returns what happened as bit flags, so the caller can react without the
 // world knowing about screens or sound. Nothing here allocates after createWorld returns.
-import { BLOCK, COIN, FIELD, LEVEL, LIVES, PLAYER, POOL_SIZE } from './config.js';
+import { CORE, CREATURE, ENERGY_MAX, ENERGY_REGEN, FIELD, MINE, PRESSURE, SUB, VAULT } from './config.js';
 
-export const KIND_BLOCK = 0;
-export const KIND_COIN = 1;
+export const KIND_MINE = 0;
+export const KIND_CORE = 1;
+export const KIND_CREATURE = 2;
 
 export const EVENT_HIT = 1;
-export const EVENT_COIN = 2;
-export const EVENT_OVER = 4;
+export const EVENT_CORE = 2;
+export const EVENT_CREATURE = 4;
+export const EVENT_OVER = 8;
+export const EVENT_WIN = 16;
 
-function overlaps(a, b) {
-  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
-}
+export const STATE_TITLE = 'title';
+export const STATE_PLAYING = 'playing';
+export const STATE_PAUSED = 'paused';
+export const STATE_DEAD = 'dead';
+export const STATE_WIN = 'win';
 
 export function createWorld(random) {
-  const player = { x: 0, y: FIELD.groundY - PLAYER.height, width: PLAYER.width, height: PLAYER.height, invulnerable: 0 };
+  const sub = { x: 220, y: FIELD.height / 2, width: SUB.width, height: SUB.height, grace: 0, boosting: false };
   const items = [];
-  for (let index = 0; index < POOL_SIZE; index += 1) {
-    items.push({ active: false, kind: KIND_BLOCK, x: 0, y: 0, width: 0, height: 0, speed: 0 });
+  for (let index = 0; index < 160; index += 1) {
+    items.push({ active: false, kind: KIND_MINE, x: 0, y: 0, vx: 0, vy: 0, radius: 0, phase: 0 });
   }
-  const state = { player, items, score: 0, lives: LIVES, level: 1, elapsed: 0, blockTimer: 0, coinTimer: 0 };
+  const vault = { x: FIELD.width + 140, y: FIELD.height / 2, hold: 0, opened: false };
+  const state = {
+    sub, items, vault,
+    screen: STATE_TITLE,
+    score: 0, cores: 0, energy: ENERGY_MAX,
+    hull: SUB.hullMax, elapsed: 0, pressure: PRESSURE.seconds,
+    mineTimer: MINE.interval, coreTimer: CORE.interval,
+    creatureTimer: CREATURE.firstAt,
+    runSeed: 0,
+  };
 
-  function reset() {
-    player.x = (FIELD.width - player.width) / 2;
-    player.invulnerable = 0;
+  function reset(seed) {
+    state.runSeed = seed >>> 0;
+    sub.x = 220; sub.y = FIELD.height / 2; sub.grace = 0; sub.boosting = false;
     for (const item of items) item.active = false;
-    state.score = 0;
-    state.lives = LIVES;
-    state.level = 1;
-    state.elapsed = 0;
-    state.blockTimer = BLOCK.interval;
-    state.coinTimer = COIN.interval;
+    vault.x = FIELD.width + 140; vault.hold = 0; vault.opened = false;
+    state.screen = STATE_PLAYING;
+    state.score = 0; state.cores = 0; state.energy = ENERGY_MAX;
+    state.hull = SUB.hullMax; state.elapsed = 0; state.pressure = PRESSURE.seconds;
+    state.mineTimer = MINE.interval; state.coreTimer = CORE.interval;
+    state.creatureTimer = CREATURE.firstAt;
   }
 
   function freeItem() {
@@ -40,85 +54,156 @@ export function createWorld(random) {
     return null;
   }
 
-  function spawnBlock() {
+  function spawnMine() {
     const item = freeItem();
     if (item === null) return;
     item.active = true;
-    item.kind = KIND_BLOCK;
-    item.width = BLOCK.minWidth + random() * (BLOCK.maxWidth - BLOCK.minWidth);
-    item.height = BLOCK.height;
-    item.x = random() * (FIELD.width - item.width);
-    item.y = -item.height;
-    item.speed = BLOCK.speed + BLOCK.speedPerLevel * (state.level - 1) + random() * BLOCK.speedJitter;
+    item.kind = KIND_MINE;
+    item.radius = MINE.radius;
+    item.x = FIELD.width + item.radius;
+    item.y = item.radius + random() * (FIELD.height - item.radius * 2);
+    const speed = MINE.speedMin + MINE.speedPerDepth * (state.elapsed / 10) + random() * MINE.speedJitter;
+    item.vx = -speed;
+    item.vy = (random() - 0.5) * 40;
+    item.phase = random() * Math.PI * 2;
   }
 
-  function spawnCoin() {
+  function spawnCore() {
     const item = freeItem();
     if (item === null) return;
     item.active = true;
-    item.kind = KIND_COIN;
-    item.width = COIN.size;
-    item.height = COIN.size;
-    item.x = random() * (FIELD.width - item.width);
-    item.y = -item.height;
-    item.speed = COIN.speed + COIN.speedPerLevel * (state.level - 1);
+    item.kind = KIND_CORE;
+    item.radius = CORE.radius;
+    item.x = FIELD.width + item.radius;
+    item.y = item.radius + random() * (FIELD.height - item.radius * 2);
+    item.vx = -CORE.speed;
+    item.vy = 0;
+    item.phase = random() * Math.PI * 2;
   }
 
-  function blockInterval() {
-    return Math.max(BLOCK.minInterval, BLOCK.interval * BLOCK.intervalScale ** (state.level - 1));
+  function spawnCreature() {
+    const item = freeItem();
+    if (item === null) return;
+    item.active = true;
+    item.kind = KIND_CREATURE;
+    item.radius = CREATURE.radius;
+    item.x = FIELD.width + item.radius;
+    item.y = item.radius + random() * (FIELD.height - item.radius * 2);
+    item.vx = -CREATURE.speed;
+    item.vy = 0;
+    item.phase = random() * Math.PI * 2;
   }
 
-  /**
-   * One fixed step. `direction` is -1, 0 or 1 (left, still, right). With `harmless` set (the title
-   * screen's backdrop) things fall but nothing touches the player and nothing scores.
-   */
-  function step(dt, direction, harmless) {
+  function overlapsSub(item) {
+    const halfW = sub.width / 2, halfH = sub.height / 2;
+    const cx = Math.max(sub.x - halfW, Math.min(item.x, sub.x + halfW));
+    const cy = Math.max(sub.y - halfH, Math.min(item.y, sub.y + halfH));
+    const dx = item.x - cx, dy = item.y - cy;
+    return dx * dx + dy * dy <= item.radius * item.radius;
+  }
+
+  function start(seed) {
+    reset(seed === undefined ? (Date.now() >>> 0) : seed);
+  }
+
+  /** Advance one fixed step; returns the events that happened as a bitmask. */
+  function step(moveX, moveY, boost, dt) {
     let events = 0;
+    if (state.screen !== STATE_PLAYING) return events;
+
     state.elapsed += dt;
-    state.level = Math.min(LEVEL.max, 1 + Math.floor(state.elapsed / LEVEL.seconds));
-
-    player.x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * dt));
-    if (player.invulnerable > 0) player.invulnerable = Math.max(0, player.invulnerable - dt);
-
-    state.blockTimer -= dt;
-    if (state.blockTimer <= 0) {
-      spawnBlock();
-      state.blockTimer += blockInterval();
-    }
-    state.coinTimer -= dt;
-    if (state.coinTimer <= 0) {
-      spawnCoin();
-      state.coinTimer += COIN.interval + random() * COIN.intervalJitter;
+    state.pressure = Math.max(0, state.pressure - dt);
+    if (state.pressure === 0) {
+      state.screen = STATE_DEAD;
+      events |= EVENT_OVER;
+      return events;
     }
 
+    // submarine movement; boost costs energy and doubles speed
+    sub.boosting = boost && state.energy > 1;
+    const speed = sub.boosting ? SUB.boostSpeed : SUB.speed;
+    if (sub.boosting) {
+      state.energy = Math.max(0, state.energy - SUB.boostDrain * dt);
+    } else {
+      state.energy = Math.min(ENERGY_MAX, state.energy + ENERGY_REGEN * dt);
+    }
+    sub.x = Math.max(sub.width / 2, Math.min(FIELD.width - sub.width / 2, sub.x + moveX * speed * dt));
+    sub.y = Math.max(sub.height / 2, Math.min(FIELD.height - sub.height / 2, sub.y + moveY * speed * dt));
+    if (sub.grace > 0) sub.grace = Math.max(0, sub.grace - dt);
+
+    // spawning, faster as the run ages
+    state.mineTimer -= dt;
+    if (state.mineTimer <= 0) {
+      spawnMine();
+      const scale = Math.pow(MINE.intervalScale, state.elapsed / 10);
+      state.mineTimer = Math.max(MINE.minInterval, MINE.interval * scale) * (0.6 + random() * 0.8);
+    }
+    state.coreTimer -= dt;
+    if (state.coreTimer <= 0) {
+      spawnCore();
+      state.coreTimer = CORE.interval * (0.5 + random() * CORE.intervalJitter);
+    }
+    state.creatureTimer -= dt;
+    if (state.creatureTimer <= 0) {
+      spawnCreature();
+      state.creatureTimer = 18 + random() * 14;
+    }
+
+    // the vault drifts in once the core quota is met
+    if (state.cores >= VAULT.requiredCores) {
+      vault.x -= VAULT.drift * dt;
+      const inside = sub.x > vault.x - 40 && sub.x < vault.x + 40 && Math.abs(sub.y - vault.y) < 52;
+      if (inside) {
+        vault.hold += dt;
+        if (vault.hold >= VAULT.openTime) {
+          vault.opened = true;
+          state.screen = STATE_WIN;
+          events |= EVENT_WIN;
+        }
+      } else {
+        vault.hold = Math.max(0, vault.hold - dt * 2);
+      }
+    }
+
+    // move items, cull off-screen, resolve contacts
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index];
       if (!item.active) continue;
-      item.y += item.speed * dt;
-      if (item.y > FIELD.groundY) {
-        item.active = false;
-        if (item.kind === KIND_BLOCK && !harmless) state.score += BLOCK.dodgePoints;
-        continue;
+      item.phase += dt * 3;
+      item.x += item.vx * dt;
+      item.y += item.vy * dt;
+      if (item.kind === KIND_CREATURE) {
+        item.y += Math.sin(item.phase) * CREATURE.wobble * dt;
+      } else if (item.kind === KIND_MINE) {
+        item.y += Math.sin(item.phase * 0.6) * 14 * dt;
       }
-      if (harmless || !overlaps(item, player)) continue;
-      if (item.kind === KIND_COIN) {
-        item.active = false;
-        state.score += COIN.points;
-        events |= EVENT_COIN;
-      } else if (player.invulnerable === 0) {
-        item.active = false;
-        state.lives -= 1;
-        player.invulnerable = PLAYER.invulnerable;
-        events |= EVENT_HIT;
-        if (state.lives === 0) {
-          events |= EVENT_OVER;
-          break;
+      if (item.x < -item.radius * 2) { item.active = false; continue; }
+
+      if (overlapsSub(item)) {
+        if (item.kind === KIND_CORE) {
+          item.active = false;
+          state.cores += 1;
+          state.score += CORE.score;
+          state.energy = Math.min(ENERGY_MAX, state.energy + CORE.energy);
+          events |= EVENT_CORE;
+        } else if (sub.grace === 0) {
+          item.active = false;
+          state.hull -= 1;
+          sub.grace = SUB.hitCooldown;
+          state.score = Math.max(0, state.score - 10);
+          if (item.kind === KIND_CREATURE) events |= EVENT_CREATURE;
+          if (state.hull === 0) {
+            state.screen = STATE_DEAD;
+            events |= EVENT_OVER;
+          } else {
+            events |= EVENT_HIT;
+          }
         }
       }
     }
+
     return events;
   }
 
-  reset();
-  return { state, reset, step };
+  return { state, start, step, reset };
 }
