@@ -2,11 +2,11 @@
 // confirm presses between title, playing, paused, dead and win screens. The world never
 // touches the DOM; this file is the only one that does.
 import { FIELD, STEP } from './config.js';
-import { initInput, isDown, wasPressed, endFrame } from './input.js';
+import { initInput, isDown, endFrame } from './input.js';
 import { drawFrame } from './render.js';
 import { makeRandom } from './random.js';
 import { createWorld, EVENT_CORE, EVENT_CREATURE, EVENT_HIT, EVENT_OVER, EVENT_WIN } from './world.js';
-import { onCore, onHit, onLose, onVaultHold, onWin } from './audio.js';
+import { onCore, onHit, onLose, onWin } from './audio.js';
 
 const canvas = document.getElementById('game');
 const context = canvas.getContext('2d');
@@ -27,12 +27,15 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-const random = makeRandom((Date.now() ^ (Math.floor(Math.random() * 0xffffffff))) >>> 0);
+const random = makeRandom((Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0);
 const world = createWorld(random);
+
+// Exposed for console inspection of a live run; nothing reads it to skip the rules.
+window.neonDepths = world;
 
 initInput(canvas, (key) => {
   if (key === 'confirm') {
-    if (world.state.screen === 'title' || world.state.screen === 'dead' || world.state.screen === 'win') {
+    if (world.state.screen !== 'playing' && world.state.screen !== 'paused') {
       world.start();
       status.textContent = 'Dive started. Steer with arrow keys or WASD, hold Shift to boost.';
     }
@@ -49,10 +52,6 @@ let last = performance.now();
 let accumulator = 0;
 let clock = 0;
 
-// Exposed for the captured screenshots and for anyone poking at the game from the console:
-// read the live world to see how it is tuned, never to skip its rules.
-window.neonDepths = world;
-
 function frame(now) {
   const elapsed = Math.min(0.25, (now - last) / 1000);
   last = now;
@@ -63,12 +62,10 @@ function frame(now) {
     const moveX = (isDown('right') ? 1 : 0) - (isDown('left') ? 1 : 0);
     const moveY = (isDown('down') ? 1 : 0) - (isDown('up') ? 1 : 0);
     const events = world.step(moveX, moveY, isDown('boost'), STEP);
-    if (events & (EVENT_CORE | EVENT_HIT | EVENT_CREATURE | EVENT_OVER | EVENT_WIN)) {
-      if (events & EVENT_CORE) onCore();
-      if (events & (EVENT_HIT | EVENT_CREATURE)) onHit();
-      if (events & EVENT_OVER) onLose();
-      if (events & EVENT_WIN) onWin();
-    }
+    if (events & EVENT_CORE) onCore();
+    if (events & (EVENT_HIT | EVENT_CREATURE)) onHit();
+    if (events & EVENT_OVER) onLose();
+    if (events & EVENT_WIN) onWin();
     accumulator -= STEP;
   }
   endFrame();

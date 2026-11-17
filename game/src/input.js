@@ -1,4 +1,4 @@
-// Keyboard + mouse input, edge-detected: the world only sees presses that happened this frame.
+// Keyboard + pointer input, edge-detected: the world only sees presses that happened this frame.
 
 const held = new Set();
 const pressed = new Set();

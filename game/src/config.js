@@ -43,12 +43,11 @@ export const CREATURE = {
   speed: 95,
   wobble: 130,
   score: 60,
-  damage: 1,
   firstAt: 30,          // seconds before the first anglerfish spawns
 };
 
 export const VAULT = {
-  requiredCores: 6,     // cores needed to crack the vault
+  requiredCores: 6,     // cores needed before the vault drifts in
   drift: 55,            // vault approaches from the right at this speed
   openTime: 3.0,        // seconds you must hold inside the vault beam to crack it
 };

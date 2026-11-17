@@ -30,7 +30,6 @@ export function play(freq, duration, type = 'square', volume = 0.12) {
 
 export function onCore() { play(880, 0.12, 'square', 0.10); }
 export function onHit() { play(180, 0.25, 'sawtooth', 0.14); }
-export function onVaultHold() { play(520, 0.08, 'triangle', 0.08); }
 export function onWin() { play(1320, 0.5, 'triangle', 0.14); }
 export function onLose() { play(110, 0.6, 'sawtooth', 0.16); }
 

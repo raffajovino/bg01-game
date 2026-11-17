@@ -1,7 +1,7 @@
-// Canvas renderer: one drawScreen call per frame. Everything is flat neon shapes with glow
+// Canvas renderer: one drawFrame call per frame. Everything is flat neon shapes with glow
 // circles — no image assets, so the whole game stays source the dossier can show.
-import { CORE, CREATURE, ENERGY_MAX, FIELD, HUD, MINE, PALETTE, SUB, VAULT } from './config.js';
-import { KIND_CORE, KIND_CREATURE, KIND_MINE, STATE_DEAD, STATE_PAUSED, STATE_PLAYING, STATE_TITLE, STATE_WIN } from './world.js';
+import { ENERGY_MAX, FIELD, HUD, PALETTE, VAULT } from './config.js';
+import { KIND_CORE, KIND_CREATURE, KIND_MINE, STATE_DEAD, STATE_PAUSED, STATE_TITLE, STATE_WIN } from './world.js';
 
 function glow(context, x, y, radius, colour) {
   context.fillStyle = colour;
@@ -42,7 +42,6 @@ function drawMine(context, item) {
   context.beginPath();
   context.arc(item.x, item.y, item.radius, 0, Math.PI * 2);
   context.stroke();
-  // spikes
   for (let spike = 0; spike < 6; spike += 1) {
     const angle = item.phase * 0.4 + (spike / 6) * Math.PI * 2;
     context.beginPath();
@@ -68,7 +67,7 @@ function drawCreature(context, item) {
   context.beginPath();
   context.ellipse(item.x, item.y, item.radius, item.radius * 0.62, 0, 0, Math.PI * 2);
   context.fill();
-  // lure
+  // glowing lure
   context.strokeStyle = PALETTE.creature;
   context.lineWidth = 2;
   context.beginPath();
@@ -92,7 +91,6 @@ function drawVault(context, vault) {
   context.strokeStyle = PALETTE.vault;
   context.lineWidth = 4;
   context.strokeRect(vault.x - 46, vault.y - 60, 92, 120);
-  // fill showing hold progress
   const progress = Math.min(1, vault.hold / VAULT.openTime);
   context.fillStyle = PALETTE.vaultGlow;
   context.fillRect(vault.x - 46, vault.y + 60 - 120 * progress, 92, 120 * progress);
@@ -100,6 +98,7 @@ function drawVault(context, vault) {
   context.font = HUD.font;
   context.textAlign = 'center';
   context.fillText(progress > 0 ? `CRACKING ${Math.floor(progress * 100)}%` : 'VAULT', vault.x, vault.y - 70);
+  context.textAlign = 'left';
 }
 
 function drawBackground(context, time) {
@@ -110,7 +109,7 @@ function drawBackground(context, time) {
   // drifting motes
   context.fillStyle = 'rgba(232,236,255,0.10)';
   for (let mote = 0; mote < 26; mote += 1) {
-    const x = ((mote * 173 + time * (12 + mote % 5 * 6)) % (FIELD.width + 40)) - 20;
+    const x = ((mote * 173 + time * (12 + (mote % 5) * 6)) % (FIELD.width + 40)) - 20;
     const y = (mote * 251 + Math.sin(time * 0.6 + mote) * 20) % FIELD.height;
     context.fillRect(x, y, 3, 3);
   }
@@ -122,17 +121,14 @@ function drawHud(context, state) {
   context.font = HUD.font;
   context.fillText(`SCORE ${state.score}`, HUD.pad, 28);
   context.fillText(`CORES ${state.cores}/${VAULT.requiredCores}`, HUD.pad, 52);
-  // hull pips
   for (let pip = 0; pip < state.hull; pip += 1) {
     context.fillStyle = PALETTE.good;
     context.fillRect(HUD.pad + pip * 22, 62, 16, 8);
   }
-  // energy bar
   context.fillStyle = 'rgba(232,236,255,0.18)';
   context.fillRect(FIELD.width - 168, HUD.pad, 150, 12);
   context.fillStyle = state.energy > 25 ? PALETTE.core : PALETTE.danger;
   context.fillRect(FIELD.width - 168, HUD.pad, 150 * (state.energy / ENERGY_MAX), 12);
-  // pressure clock
   context.fillStyle = state.pressure < 15 ? PALETTE.danger : PALETTE.dim;
   context.textAlign = 'right';
   context.fillText(`HULL ${state.pressure.toFixed(1)}s`, FIELD.width - HUD.pad, 50);
@@ -166,8 +162,7 @@ export function drawFrame(context, world, time) {
     ], time);
     return;
   }
-  const vaultVisible = state.cores >= VAULT.requiredCores;
-  if (vaultVisible) drawVault(context, state.vault);
+  if (state.cores >= VAULT.requiredCores) drawVault(context, state.vault);
   for (let index = 0; index < state.items.length; index += 1) {
     const item = state.items[index];
     if (!item.active) continue;
@@ -186,7 +181,7 @@ export function drawFrame(context, world, time) {
     ], time);
   } else if (state.screen === STATE_WIN) {
     centerBlock(context, 'VAULT CRACKED', [
-      `you escaped with ${state.score} points and ${(VAULT.openTime - state.vault.hold + state.vault.hold).toFixed(0)}s`,
+      `you escaped with ${state.score} points`,
       `hull remaining ${state.hull} — ENTER or CLICK dives again`,
     ], time);
   }

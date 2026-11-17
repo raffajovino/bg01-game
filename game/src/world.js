@@ -96,9 +96,9 @@ export function createWorld(random) {
 
   function overlapsSub(item) {
     const halfW = sub.width / 2, halfH = sub.height / 2;
-    const cx = Math.max(sub.x - halfW, Math.min(item.x, sub.x + halfW));
-    const cy = Math.max(sub.y - halfH, Math.min(item.y, sub.y + halfH));
-    const dx = item.x - cx, dy = item.y - cy;
+    const nearestX = Math.max(sub.x - halfW, Math.min(item.x, sub.x + halfW));
+    const nearestY = Math.max(sub.y - halfH, Math.min(item.y, sub.y + halfH));
+    const dx = item.x - nearestX, dy = item.y - nearestY;
     return dx * dx + dy * dy <= item.radius * item.radius;
   }
 
@@ -115,18 +115,14 @@ export function createWorld(random) {
     state.pressure = Math.max(0, state.pressure - dt);
     if (state.pressure === 0) {
       state.screen = STATE_DEAD;
-      events |= EVENT_OVER;
-      return events;
+      return events | EVENT_OVER;
     }
 
     // submarine movement; boost costs energy and doubles speed
     sub.boosting = boost && state.energy > 1;
     const speed = sub.boosting ? SUB.boostSpeed : SUB.speed;
-    if (sub.boosting) {
-      state.energy = Math.max(0, state.energy - SUB.boostDrain * dt);
-    } else {
-      state.energy = Math.min(ENERGY_MAX, state.energy + ENERGY_REGEN * dt);
-    }
+    if (sub.boosting) state.energy = Math.max(0, state.energy - SUB.boostDrain * dt);
+    else state.energy = Math.min(ENERGY_MAX, state.energy + ENERGY_REGEN * dt);
     sub.x = Math.max(sub.width / 2, Math.min(FIELD.width - sub.width / 2, sub.x + moveX * speed * dt));
     sub.y = Math.max(sub.height / 2, Math.min(FIELD.height - sub.height / 2, sub.y + moveY * speed * dt));
     if (sub.grace > 0) sub.grace = Math.max(0, sub.grace - dt);
@@ -149,7 +145,7 @@ export function createWorld(random) {
       state.creatureTimer = 18 + random() * 14;
     }
 
-    // the vault drifts in once the core quota is met
+    // the vault drifts in once the core quota is met; holding in its beam cracks it
     if (state.cores >= VAULT.requiredCores) {
       vault.x -= VAULT.drift * dt;
       const inside = sub.x > vault.x - 40 && sub.x < vault.x + 40 && Math.abs(sub.y - vault.y) < 52;
@@ -172,11 +168,8 @@ export function createWorld(random) {
       item.phase += dt * 3;
       item.x += item.vx * dt;
       item.y += item.vy * dt;
-      if (item.kind === KIND_CREATURE) {
-        item.y += Math.sin(item.phase) * CREATURE.wobble * dt;
-      } else if (item.kind === KIND_MINE) {
-        item.y += Math.sin(item.phase * 0.6) * 14 * dt;
-      }
+      if (item.kind === KIND_CREATURE) item.y += Math.sin(item.phase) * CREATURE.wobble * dt;
+      else if (item.kind === KIND_MINE) item.y += Math.sin(item.phase * 0.6) * 14 * dt;
       if (item.x < -item.radius * 2) { item.active = false; continue; }
 
       if (overlapsSub(item)) {
@@ -185,7 +178,7 @@ export function createWorld(random) {
           state.cores += 1;
           state.score += CORE.score;
           state.energy = Math.min(ENERGY_MAX, state.energy + CORE.energy);
-          // every third core also patches the hull, rewarding aggressive play
+          // every third core patches one hull point, rewarding aggressive collection
           if (state.cores % 3 === 0 && state.hull < SUB.hullMax) state.hull += 1;
           events |= EVENT_CORE;
         } else if (sub.grace === 0) {
@@ -207,5 +200,5 @@ export function createWorld(random) {
     return events;
   }
 
-  return { state, start, step, reset };
+  return { state, start, reset, step };
 }
